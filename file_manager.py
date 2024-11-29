@@ -17,7 +17,13 @@ CONFIG = {
         'audio': ['.mp3', '.wav', '.flac', '.m4a'],
         'video': ['.mp4', '.avi', '.mkv', '.mov'],
         'archives': ['.zip', '.rar', '.7z', '.tar', '.gz']
-    }
+    },
+    'ignore_patterns': [
+        '.tmp',  # Temporäre Dateien
+        '.crdownload',  # Chrome Downloads
+        '.part',  # Firefox partielle Downloads
+        '.download'  # Andere Download-Manager
+    ]
 }
 
 # Logging einrichten
@@ -27,6 +33,30 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+def should_ignore_file(file_path: Path) -> bool:
+    """Prüft, ob die Datei ignoriert werden soll."""
+    # Ignoriere den Sorted-Ordner selbst
+    if 'Sorted' in file_path.parts:
+        return True
+        
+    # Ignoriere temporäre Dateien und aktive Downloads
+    for pattern in CONFIG['ignore_patterns']:
+        if str(file_path).lower().endswith(pattern):
+            return True
+            
+    # Ignoriere versteckte Dateien
+    if file_path.name.startswith('.'):
+        return True
+        
+    # Ignoriere Dateien mit 0 Bytes (möglicherweise noch im Download)
+    try:
+        if file_path.stat().st_size == 0:
+            return True
+    except:
+        return True
+        
+    return False
 
 def get_file_category(file_path: str) -> str:
     """Bestimme die Kategorie einer Datei basierend auf ihrer Erweiterung."""
@@ -44,8 +74,8 @@ def process_file(file_path: str) -> None:
         if not file_path.exists():
             return
 
-        # Überspringe den Sorted-Ordner selbst
-        if 'Sorted' in file_path.parts:
+        # Prüfe, ob die Datei ignoriert werden soll
+        if should_ignore_file(file_path):
             return
 
         category = get_file_category(file_path)
@@ -56,8 +86,14 @@ def process_file(file_path: str) -> None:
         new_filename = f"{timestamp}_{file_path.name}"
         destination_path = destination_folder / new_filename
 
-        shutil.move(str(file_path), str(destination_path))
-        logger.info(f'Datei verschoben: {file_path.name} -> {category}/{new_filename}')
+        # Versuche die Datei zu verschieben
+        try:
+            shutil.move(str(file_path), str(destination_path))
+            logger.info(f'Datei verschoben: {file_path.name} -> {category}/{new_filename}')
+        except PermissionError:
+            logger.warning(f'Datei wird noch verwendet: {file_path.name}')
+        except Exception as e:
+            logger.error(f'Fehler beim Verschieben von {file_path.name}: {str(e)}')
 
     except Exception as e:
         logger.error(f'Fehler beim Verarbeiten von {file_path}: {str(e)}')
